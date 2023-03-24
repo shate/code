@@ -1,99 +1,116 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, PermissionsAndroid, Platform, TouchableOpacity, ToastAndroid } from 'react-native';
-import Btn from '../custom-elem/button';
-import Subtitle from '../custom-elem/subtitle';
-import Main from '../layout/main';
-import Progress from '../custom-elem/progress';
-import IcoRecord from '../custom-elem/icoRecord';
-import RNFS from 'react-native-fs';
+import React, { useState, useEffect, useContext } from 'react'
+import {
+    StyleSheet,
+    View,
+    Text,
+    PermissionsAndroid,
+    Platform,
+    TouchableOpacity,
+    ToastAndroid,
+
+} from 'react-native'
+import Btn from '../custom-elem/button'
+import Subtitle from '../custom-elem/subtitle'
+import Main from '../layout/main'
+import Progress from '../custom-elem/progress'
+import IcoRecord from '../custom-elem/icoRecord'
+import RNFS from 'react-native-fs'
 
 import AudioRecorderPlayer, {
     AVEncoderAudioQualityIOSType,
     AVEncodingOption,
     AudioEncoderAndroidType,
     AudioSourceAndroidType,
-} from 'react-native-audio-recorder-player';
+} from 'react-native-audio-recorder-player'
 
-import RNFetchBlob from 'rn-fetch-blob';
+import RNFetchBlob from 'rn-fetch-blob'
 
-import { globalStyles } from '../../../styles/style';
+import { globalStyles } from '../../../styles/style'
+import notifee, { AndroidNotificationSetting } from "@notifee/react-native"
+import { Context } from "../context"
+import { Result } from "../../helpers/classes"
 
-const audioRecorderPlayer = new AudioRecorderPlayer();
-audioRecorderPlayer.setSubscriptionDuration(1);
+const audioRecorderPlayer = new AudioRecorderPlayer()
+audioRecorderPlayer.setSubscriptionDuration(1)
 
-export default function Record({navigation, route}){
-    const {data} = route.params && route.params;
-    const clearAddScreen = route.params.clearAddScreen;
-    const [settings, setSettings] = useState(data);
-    const [start, setStart] = useState(false);
-    const [duration, setDuration] = useState(0);
-    const [granted, setAndroidGranted] = useState(false);
-    const id = settings && `${settings.time.hour}${settings.time.unix}${settings.time.min}`;
-
-    useEffect(() => {
-        if(!data){
-            setSettings({...route.params});
-        }
-    }, [data]);
+export default function Record({navigation, route}) {
+    const {listAlarms, setAlarms, YandexMetrica} = useContext(Context)
+    const {data} = route.params && route.params
+    const [start, setStart] = useState(false)
+    const [duration, setDuration] = useState(0)
+    const [granted, setAndroidGranted] = useState(false)
+    const [id, setId] = useState(String(Date.now()))
 
     useEffect(() => {
-        if(duration > 14) onStopRecord();
-    }, [duration]);
+        navigation.addListener('focus', () => {
+            setId(String(Date.now()))
+        })
+    }, [navigation])
 
     useEffect(() => {
-        (async() => {
-            if(Platform.OS === 'android'){
-                const hasPermissionWrite = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE);
-                const hasPermissionRecord = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+        if (duration > 14) onStopRecord()
+    }, [duration])
 
-                if(hasPermissionRecord && hasPermissionWrite){
-                    setAndroidGranted(true);
+    useEffect(() => {
+        (async () => {
+            if (Platform.OS === 'android') {
+                const settings = await notifee.getNotificationSettings()
+                if (settings.android.alarm !== AndroidNotificationSetting.ENABLED) {
+                    await notifee.openAlarmPermissionSettings()
                 }
-                else{
-                    setAndroidGranted(false);
+                const hasPermissionWrite = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE)
+                const hasPermissionRecord = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO)
+
+                if (hasPermissionRecord && hasPermissionWrite) {
+                    setAndroidGranted(true)
+                } else {
+                    setAndroidGranted(false)
                 }
+            } else {
+                setAndroidGranted(true)
             }
-            else{
-                setAndroidGranted(true);
-            }
-        })();
-    }, []);
+        })()
+    }, [])
 
-    const onStartRecord = async() => {
+    const onStartRecord = async () => {
 
-        if(!granted){
-            if(Platform.OS === 'android'){
-                const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+        if (!granted) {
+            if (Platform.OS === 'android') {
+                const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO)
 
-                if(granted !== PermissionsAndroid.RESULTS.GRANTED){
-                    ToastAndroid.show('Использование микрофона запрещено', ToastAndroid.LONG);
-                    return false;
-                }
-            }
-
-            if(Platform.OS === 'android'){
-                const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE);
-
-                if(granted !== PermissionsAndroid.RESULTS.GRANTED){
-                    ToastAndroid.show('Запись в хранилище запрещено', ToastAndroid.LONG);
-                    return false;
+                if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+                    ToastAndroid.show('Использование микрофона запрещено', ToastAndroid.LONG)
+                    return false
                 }
             }
 
-            setAndroidGranted(true);
-        }
-        else{
+            if (Platform.OS === 'android') {
+                const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE)
 
-            if(settings.uri){
-                let exists = await RNFS.exists(`${RNFS.DocumentDirectoryPath}/${settings.fileName}`);
-
-                if(exists){
-                    await RNFS.unlink(`${RNFS.DocumentDirectoryPath}/${settings.fileName}`);
+                if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+                    ToastAndroid.show('Запись в хранилище запрещено', ToastAndroid.LONG)
+                    return false
                 }
             }
-            setStart(true);
 
-            const path = Platform.OS === 'android' ? `${RNFetchBlob.fs.dirs.DocumentDir}/${id}.m4a` : `file://alarms/${id}.m4a`;
+            setAndroidGranted(true)
+        } else {
+
+            if (!data && route.params.uri) {
+                let exists = await RNFS.exists(route.params.uri)
+
+                if (exists) {
+                    await RNFS.unlink(route.params.uri)
+                    await notifee.cancelTriggerNotifications([route.params.id, `r${route.params.id}`])
+                    const filtersdList = listAlarms.filter(item => item.id !== route.params.id)
+                    const updateArr = filtersdList ? [...filtersdList] : []
+                    setAlarms(updateArr)
+                    YandexMetrica.reportEvent('change_record')
+                }
+            }
+            setStart(true)
+
+            const path = Platform.OS === 'android' ? `${RNFetchBlob.fs.dirs.DocumentDir}/${id}.mp3` : `file://alarms/${id}.m4a`
 
             const audioSet = {
                 AudioEncoderAndroid: AudioEncoderAndroidType.AAC,
@@ -101,84 +118,83 @@ export default function Record({navigation, route}){
                 AVEncoderAudioQualityKeyIOS: AVEncoderAudioQualityIOSType.high,
                 AVNumberOfChannelsKeyIOS: 2,
                 AVFormatIDKeyIOS: AVEncodingOption.aac,
-            };
-            await audioRecorderPlayer.startRecorder(path, audioSet);
+            }
+            await audioRecorderPlayer.startRecorder(path, audioSet)
             audioRecorderPlayer.addRecordBackListener((e) => {
-                setDuration((prev) => +prev + 1);
-            });
+                setDuration((prev) => +prev + 1)
+            })
         }
+    }
 
-    };
+    const onStopRecord = async () => {
+        if (duration < 3) return
+        setStart(false)
+        const result = await audioRecorderPlayer.stopRecorder()
+        audioRecorderPlayer.removeRecordBackListener()
 
-    const onStopRecord = async() => {
-        if(duration < 3) return;
-        setStart(false);
-        const result = await audioRecorderPlayer.stopRecorder();
-        audioRecorderPlayer.removeRecordBackListener();
-
-        if(result !== 'Already stopped'){
+        const obj = new Result(
+          data ? data.time : route.params.time,
+          data ? data.title : route.params.title,
+          data ? data.description : route.params.description,
+          data ? data.repeatStatus : route.params.repeatStatus,
+          result,
+          data ? data.alarmStatus : route.params.alarmStatus,
+          data ? id : route.params.id,
+          duration,
+          !Boolean(data)
+        )
+        if (result !== 'Already stopped') {
             navigation.navigate('Result', {
-
-                clearAddScreen,
-                uri: result,
-                duration: duration,
-                title: settings.title,
-                description: settings.description,
-                time: settings.time,
-                repeatStatus: settings.repeatStatus,
-                alarmStatus: settings.uri ? false : settings.alarmStatus,
-                fileName: `${id}.m4a`
-            });
+                  ...obj
+              }
+            )
         }
-        setDuration(0);
+        setDuration(0)
 
-    };
+    }
 
     return (
-        <Main
-            title={!start ? 'Начнем запись?' : 'Пожалуйста, говорите:)'}
-            stepRange={'30%'}
-            activeTab={'Record'}
-        >
-            <Subtitle
-                partBlue={!start ? 'Нажмите на микрофон,' : 'Пожелайте себе,'}
-                partBlack={!start ? 'чтобы записать аудио' : ' самого доброго утра!'}
-            />
-            <View style={styles.root}>
-                {
-                    !start
-                        ? <TouchableOpacity onPress={() => onStartRecord()}>
-                            <IcoRecord/>
-                        </TouchableOpacity>
+      <Main
+        title={!start ? 'Начнем запись?' : 'Пожалуйста, говорите:)'}
+        stepRange={'30%'}
+        activeTab={'Record'}
+      >
+          <Subtitle
+            partBlue={!start ? 'Нажмите на микрофон,' : 'Пожелайте себе,'}
+            partBlack={!start ? 'чтобы записать аудио' : ' самого доброго утра!'}
+          />
+          <View style={styles.root}>
+              {
+                  !start
+                    ? <TouchableOpacity onPress={() => onStartRecord()}>
+                        <IcoRecord />
+                    </TouchableOpacity>
 
-                        : <Progress fill={6.666 * duration} lastTime={15 - duration}/>
-                }
-                <View>
-                    <View style={start && styles.start}>
-                        <Btn
-                            // navigation={navigation}
-                            title={!start ? 'Начать запись аудио' : 'Остановить запись...'}
-                            // navigateScreen={'Record'}
-                            handlePress={!start ? () => onStartRecord() : () => onStopRecord()}
-                            isDisabled={start}
-                        />
-                    </View>
-                    {
-                        !start
-                            ? <View style={styles.wrap}>
-                                <View style={[globalStyles.subTitleWrap, globalStyles.borderBottomNone, {paddingBottom: 0}]}>
-                                    <Text style={[globalStyles.subtitle, styles.text]}>
-                                        <Text style={{color: 'black'}}>Запись начинается с 3 секунд</Text>
-                                    </Text>
-                                </View>
+                    : <Progress fill={6.666 * duration} lastTime={15 - duration} />
+              }
+              <View>
+                  <View style={start && styles.start}>
+                      <Btn
+                        title={!start ? 'Начать запись аудио' : 'Остановить запись...'}
+                        handlePress={!start ? () => onStartRecord() : () => onStopRecord()}
+                        isDisabled={Boolean(start)}
+                      />
+                  </View>
+                  {
+                      !start
+                        ? <View style={styles.wrap}>
+                            <View style={[globalStyles.subTitleWrap, globalStyles.borderBottomNone, {paddingBottom: 0}]}>
+                                <Text style={[globalStyles.subtitle, styles.text]}>
+                                    <Text style={{color: 'black'}}>Запись начинается с 3 секунд</Text>
+                                </Text>
                             </View>
-                            : null
-
-                    }
-                </View>
-            </View>
-        </Main>
-    );
+                        </View>
+                        : null
+                  }
+              </View>
+          </View>
+      </Main>
+    )
 }
 
 const styles = StyleSheet.create({
@@ -201,4 +217,4 @@ const styles = StyleSheet.create({
         flexGrow: 1,
         textAlign: 'center'
     }
-});
+})
